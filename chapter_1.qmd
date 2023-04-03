@@ -1,0 +1,304 @@
+---
+title: "Flipping hell: The absolute hack of the data in Ireland's property price register."
+editor: visual
+always_allow_html: true
+---
+
+To do
+
+-   download most recent data
+
+-   Remove line plot line for most recent year, or maybe stick it in its own plot
+
+```{r}
+#| echo: false
+source('./utils/plot_theme.R')
+source('./utils/vector_count_dfrm.R')
+# file.edit('./utils/plot_theme.R')
+```
+
+```{r}
+#| echo: false
+# install.packages('scico')
+library(tidyverse)
+library(lubridate)
+library(scico)
+library(glue)
+library(plotly)
+library(viridis)
+```
+
+```{r}
+data_folder = file.path(getwd(), "data")
+if (!dir.exists(data_folder)){dir.create(data_folder)} else {print("Dir already exists!")}
+```
+
+## Introduction
+
+The property price index is a truly valuable resource which lists the price of every gaff sold in (the twenty-six counties of) Ireland since 2010, but unfortunately, the database was designed by people who 'know the price of everything but the value of nothing'. Allegedly \[insert reference\], the data has been uploaded one entry at a time, by solicitors' secretaries, many of whom express their humanity through misspelling and irregular punctuation, while several express their Irishness with the *cúpla focail*. This valuable dataset is thus a bit like being given a big five-bed house for a holiday but having to wade through the previous tenants' filth.
+
+My role here is to take this unkempt raw data and flip it, scrubbing it goodo, and presenting it back to you, the reader, as an inhabitable space which, I hope, you can explore with some pleasure.
+
+## Reading in the data
+
+The data is stored [here](https://www.propertypriceregister.ie/website/npsra/pprweb.nsf/PPRDownloads?OpenForm) on the Property Price Register website, and from there we can download subgroups of the data, grouped by county, year or month. I want it all, so I've written a *purrr* function to read in each year's property sales and then bind them into a single dataframe (using *map_dfr*). I've saved all columns as strings since it's much faster and they all need cleaning inanyways. Finally I've had to encode them as *latin1* to avoid [this bug](https://stackoverflow.com/a/14363274/13884083), although I"m still not happy as it's not reading the Euro symbol *€*.
+
+```{r}
+#This needs updating to make sure to pull the latest data for the current year
+property_rds_filepath <- './data/property_raw_all_years_except_this_one.rds'
+# "./data/property_raw.rds"
+current_year = format(Sys.Date(),"%Y") %>% as.numeric
+relevant_years = 2010:current_year
+#templated version of the url containing CSVs for each year
+url_csv_addresses = paste0('https://www.propertypriceregister.ie/website/npsra/ppr/npsra-ppr.nsf/Downloads/PPR-',relevant_years, '.csv/$FILE/PPR-', relevant_years, '.csv')
+
+if (file.exists(property_rds_filepath)) {
+  property_raw_until_last_year <- readRDS(property_rds_filepath)
+} else {
+
+  
+  property_raw_until_last_year <- 
+  #take all years but this one
+  url_csv_addresses[1:(length(url_csv_addresses)-1)] %>% 
+  #and apply function to the url for each year. 
+  purrr::map_dfr(  ~  read_csv(.x, 
+                               col_types = "ccccccccc", 
+                               locale=locale(encoding="latin1")))
+  saveRDS(property_raw_until_last_year, './data/property_raw_all_years_except_this_one.rds')
+}
+
+#this should be reading the url
+property_raw_this_year <- 
+  url_csv_addresses[length(url_csv_addresses)] %>% 
+  #apply function to the url for each year. 
+  purrr::map_dfr(  ~  read_csv(.x, 
+                               col_types = "ccccccccc", 
+                               locale=locale(encoding="latin1")))
+property_raw <- bind_rows(property_raw_until_last_year, property_raw_this_year)
+
+```
+
+Here are the most recent sales
+
+```{r}
+tail(property_raw)
+```
+
+## What is contained in the data?
+
+Each row represents the sale of a single property, and the sale date is included along with the sale price and the address. It is thus possible to see how much your neighbours paid for their gaff or indeed any property sold in Ireland since 2010. There is a useful column for the county and eircodes have been added to the data in recent years. There is some secondary data about the nature of the sale, such as whether the property was sold at the market price or not, whether VAT was charged, whether the house was new or second-hand. A column is included for the size of the property, roughly equating to tiny (\<38sq. m), large (\> 125 sq.m) or anything in-between.
+
+The very first thing to do is to clean the column names which were either designed for humans to read on a spreadsheet, or, perhaps more likely, conceived as a set of instructions for those entering sale details into the database. I want them in a format suitable for coding in R. No capitals, spaces or excess descriptive baggage. First off, I will work create a copy of the property_raw dataframe so that I can start again every time I make an error, without having to read in the data again.
+
+```{r}
+names(property_raw)
+# glimpse(property_raw)
+property <- property_raw
+names(property) = c('date', 'address', 'county', 'eircode', 'price', 'market_price', 'vat', 'new', 'size')
+```
+
+Let's look at each column in turn, and, in doing so, I will clean them up, before plotting the cleaner version of the data. The date needs to be convered back to a data form, the year is essential, and I'm including quarter, month and day (of the week) because we might find them useful later, and it might just be interesting to see which days and months are the most common for sales and which are the most expensive.
+
+### Dates and sales
+
+```{r}
+property <-
+  property %>% 
+  #add new yeaar, month (jan - dec), weekday (mon - sun), quarter with year
+  mutate(date = dmy(date), 
+         year = year(date),
+         month = month(date, label = T),
+         day = wday(date, label = T),
+         quarter = quarter(date, with_year = T))
+```
+
+So the simplest thing to look at is how many properties have been sold each year since they started collecting the data.
+
+```{r}
+annual_sales <- 
+  property %>% 
+  group_by(year) %>% 
+  summarise(sales = n())
+  # mutate(year = year %>% as.factor) %>% 
+(annual_sales %>% 
+  ggplot(aes(x = year  , 
+             y = sales)) +
+  geom_line(size = 2) +
+  geom_point(size = 4, color = 'orange') +
+
+    # scale_x_discrete() 
+  scale_x_continuous(breaks = annual_sales$year) + #, position = "top" doeesn't work automatically in ggplotly
+    #round max sales up to nearest 10k then add 5k for spacing
+  scale_y_continuous(expand = c(0, 0), limits = c(0, max(annual_sales$sales) %>% round(digits = -4) + 5000)) +
+  labs(title = 'Number of properties sold in Ireland each year, 2010-present', 
+       y = '', x = '') +
+  my_theme) %>% 
+  ggplotly
+
+
+
+  
+```
+
+It's pretty clear that there's a massive difference between the recession of 2010-13 and the sudden return to form in 2014, followed by five more years of increased sales before Covid. Unsurprisingly, sales dropped in 2020, but they didn't nosedive like, say, the airline industry, and 2021 shows a return to 2019 levels.
+
+At the time of writing (November 2022), it is not immediately obvious if sales will increase from 2021, but, if we break down sales by month, as in the plot below, then that seems likely, as each month has been consistently a wee bit ahead thus far. This resolution makes it possible to see inside the grim years of the Covid pandemic. Understandably there were reduced sales in April 2020 (2647 sales vs 4562 in 2019), May (2592 v 4940), June (3083 v 4356), but things re-normalized by October (5576 v 5579) and November (5379 v 5264), while the end-of-year rush in the 'meaningful' month of December 2020 (7474 sales) was a good deal larger than December 2019 (6798).
+
+```{r}
+#| echo: false
+#| fig-cap: "Properties sold by year"
+first_year_of_plot <- 2018 
+
+(property_sales_by_year <- 
+  property %>% 
+   filter(year >= first_year_of_plot) %>% 
+    mutate(year = factor(year), 
+           month = fct_rev(month)) %>% 
+  ggplot(aes (x = year , fill = month )) + #factor(year) %>% fct_rev
+  geom_bar(position="stack") +
+  # geom_text(stat='count', aes(label=(..count../1000) %>% round(0) %>% paste0(., 'k'))) +
+  # coord_flip() +
+  # scale_x_date(breaks = year)+ #year is not a date so this throws an error
+  # scale_fill_scico(palette = 'bamako') +
+  scale_fill_viridis(discrete = T, direction = -1, option = 'B') +
+  labs(title = paste0("Number of properties sold each month and year in Ireland:\n", first_year_of_plot, "–present"), 
+       subtitle = 'Grouped by month',
+       y = '', 
+       x = '') +
+  my_theme 
+  +
+   theme(legend.position = 'none')
+  ) %>% 
+  ggplotly
+# https://stackoverflow.com/questions/26553526/how-to-add-frequency-count-labels-to-the-bars-in-a-bar-graph-using-ggplot2
+
+
+```
+
+One last thing to note, before I get too far into the weeds, is that there hasn't been a bounceback from the "missing" 10,000 sales in 2020. Instead, the 2021 and 2022 sales totals look like a natural progression from the years leading up to 2020.
+
+```{r}
+# annual_sales %>% filter(year > 2014)
+```
+
+```{r}
+#| echo: false
+#| fig-cap: "Properties sold by Quarter:2019-22"
+# (property_sales_by_quarter <- 
+#   property %>% 
+#     filter(year > 2018, year <= 2022) %>% 
+#   ggplot(aes (x = factor(quarter))) + #factor(year) %>% fct_rev
+#   geom_bar(aes(fill = ..count..)) +
+#   geom_text(stat='count', aes(label=(..count../1000) %>% round(0) %>% paste0(., 'k')), vjust=1) +
+#   #coord_flip() +
+#   #scale_x_date(breaks = year)+
+#   scale_fill_scico(palette = 'bamako') +
+#     facet_wrap(~year, scales = 'free_x') +
+#   labs(title = paste0("Number of properties sold in Ireland: 2020–", current_year), 
+#        y = '', 
+#        x = '') +
+#   my_theme +
+#    theme(legend.position = 'none'))
+
+
+
+```
+
+It's also worth a quick sconce at quarterly data in recent years. I've kept 2019 as a control group, and its numbers are similar to 2021 (12-14-16-18k versus 13-13-15-18k), while 2022 is looking similar at the time of writing (13-15-16k). Only 2020 shows a notable slump, with a massive drop in Q2 and only partial recovery in Q3r. Yet Q4 2020 shows identical numbers to 2019 and 2021 (18k apiece). However, what we might see is a differential in sales of new and second-hand homes as construction of new houses stopped for long periods due to Covid, whereas second-hand houses-to-be already basically existed.
+
+### New homes versus old
+
+Before we look at the frightening cost of a gaff in this country, I'm going to clean up the "Property Description" column, which is the one that tells you if the gaff is new or old. This will give us an introduction to the absolute state of this dataset:
+
+```{r}
+#| echo: false
+
+# table(property$new,  useNA = 'ifany')
+(new_or_old <- vector_count_dfrm(property$new))
+
+```
+
+The label 'New Dwelling house /Apartment' is not computer-friendly and I'll change it to 'New' (with a cheeky capital because it'll save me manually relabelling axes later at little cos). Similarly, 'Second-Hand Dwelling house /Apartment' will become 'Old' an underdescriptive label that at least contrasts nicely against 'New'. *Mar sin féin*, `new_or_old$count[3:nrow(new_or_old)] %>% sum` properties have had their description listed in Irish, so we need to clean those up, and basically translate them back into English. There have been some issues importing the fadas (accents) but we can still group them using ad-hoc regexes.
+
+```{r}
+#relabel the Irish & make logical
+property$new <- 
+  ifelse(str_detect(property$new, 'Nua$'), 
+         'New Dwelling house /Apartment', 
+         ifelse(str_detect(property$new , 'imhe$'), 
+                'Second-Hand Dwelling house /Apartment', 
+                property$new))  %>% 
+  factor  %>% 
+  fct_drop() %>% #removes empty levels e.g. ones in Irish 
+  fct_recode('New' = 'New Dwelling house /Apartment',
+             'Old' = 'Second-Hand Dwelling house /Apartment')
+
+(new_or_old_cleaned <- 
+    vector_count_dfrm(property$new) %>%
+    mutate(percentage = ((100*count)/sum(count)) %>% round(2)
+           )
+)
+property$new %>% fct_drop -> property$new
+```
+
+It is not yet the time to concern ourselves with the fact that only `new_or_old_cleaned$count[2]` new properties (`(100*new_or_old_cleaned$count[2]/nrow(property)) %>% round(1) %>% paste0(.,'%')` of them) have been sold in a country which has grown by just over half a million people since 2010.
+
+```{r}
+#rotate x-axis labels 45' cos they the plot is too small to read them.
+  x <- property %>% 
+  ggplot(aes (x = factor(year))) + #factor(year) %>% fct_rev
+  geom_bar(aes(fill = ..count..)) +
+  # geom_text(stat='count', aes(label=(..count../1000) %>% round(0) %>% paste0(., 'k')), vjust=1) +
+  #coord_flip() +
+  #scale_x_date(breaks = year)+
+  scale_fill_scico(palette = 'bamako') +
+      labs(title = "Number of properties sold each year, old & new", 
+       y = '', 
+       x = '') +
+  facet_wrap(~new %>% fct_rev) +
+  my_theme +
+   theme(legend.position = 'none') 
+library(plotly)
+ggplotly(x)
+
+
+```
+
+Price by year, medians and boxplots
+
+Before analysing prices, we need to clean up the price column which includes unwanted commas, badly imported euro symbols, and some unexpected spare change after the decimal point. The first thing to check is what kind of non-digits are in there, and then we can remove them. It turns out that there is nothing except the three categories above, all of which saw in the in the first few rows.
+
+```{r}
+property$price %>% str_extract_all('\\D') %>% unlist %>% table() 
+
+```
+
+Each price has a euro-symbol, read in here as a unicode character '\u0080', and a decimal point
+
+```{r}
+# filter(property, str_detect(price, '^\u0080') == T) %>% View
+# str_extract(property$price, 1) %>% table
+```
+
+```{r}
+# str_extract(property$price, '\\d{2}$') %>% 
+#   as.numeric %>% 
+#   table %>% 
+#   as.data.frame() %>%
+#   select(cent = '.', 
+#          count = Freq) %>% 
+#   mutate(group = as.numeric(cent) %% 10) %>% 
+#   ggplot(aes(x = as.factor(cent), 
+#              y = count, 
+#              fill = as.factor(group))) +
+#      geom_bar(stat="identity") +
+#   scale_y_continuous(trans = 'log2') +
+#   coord_polar(start = 0) +
+#   facet_wrap(~group, ncol = 5) +
+#   theme_void()
+#   my_theme
+#   
+
+
+
+```

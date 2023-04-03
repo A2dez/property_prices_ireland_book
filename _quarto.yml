@@ -1,0 +1,21 @@
+project:
+  type: book
+  always_allow_html: true
+
+book:
+  title: "The cost of a gaff in Ireland"
+  author: "Des"
+  date: "10/29/2022"
+  chapters:
+    - index.qmd
+    - chapter_1.qmd
+
+bibliography: references.bib
+
+format:
+  html:
+    theme: cosmo
+  pdf:
+    documentclass: scrreprt
+
+editor: visual
