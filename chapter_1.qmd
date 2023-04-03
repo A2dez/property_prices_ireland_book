@@ -48,7 +48,7 @@ The data is stored [here](https://www.propertypriceregister.ie/website/npsra/ppr
 property_rds_filepath <- './data/property_raw_all_years_except_this_one.rds'
 # "./data/property_raw.rds"
 current_year = format(Sys.Date(),"%Y") %>% as.numeric
-relevant_years = 2010:current_year
+relevant_years = 2015:current_year
 #templated version of the url containing CSVs for each year
 url_csv_addresses = paste0('https://www.propertypriceregister.ie/website/npsra/ppr/npsra-ppr.nsf/Downloads/PPR-',relevant_years, '.csv/$FILE/PPR-', relevant_years, '.csv')
 
