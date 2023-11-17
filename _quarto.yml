@@ -1,6 +1,6 @@
 project:
   type: book
-  always_allow_html: true
+  #always_allow_html: true
 
 execute:
   freeze: auto
