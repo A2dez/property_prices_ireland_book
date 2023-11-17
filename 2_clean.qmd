@@ -145,9 +145,9 @@ eircode_data %>%
 It should be noted that there are a few houses with eircodes befored 2020
 
 ```{r}
- property %>% 
-  filter(year < 2021, !is.na(eircode)) %>% 
-  View
+ # property %>% 
+ #  filter(year < 2021, !is.na(eircode)) %>% 
+ #  View
 
 # property_raw %>% 
   # left_join(postcode_dfrm)
