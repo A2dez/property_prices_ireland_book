@@ -1,0 +1,155 @@
+---
+title: "Clean data"
+---
+
+```{r}
+library(lubridate)
+library(viridis)
+library(tidyr)
+library(ggplot2)
+library(plotly)
+source('./utils/plot_theme.R')
+source('1_read.R')
+```
+
+```{r}
+#If you have run the script already, then this rds file will be used to
+property_rds_filepath <- './data/property_raw_all_years_except_this_one.rds'
+#Here's one I prepared earlier, containing postcode data for sales up to May 2021
+#it is actually available at Kaggle: 
+#https://www.kaggle.com/datasets/erinkhoo/property-price-register-ireland/data
+postcode_data_path <- "Property_Price_Register_Ireland-28-05-2021.csv"
+postcodes_dfrm_path <- "postcodes.rds"
+property_data_url <- "https://www.propertypriceregister.ie/website/npsra/ppr/npsra-ppr.nsf/Downloads"
+#create data folder for downloads
+
+```
+
+```{r}
+
+property_raw <- read_property_prices(property_data_url, property_rds_filepath) 
+postcode_dfrm <- read_postcode_data(postcodes_dfrm_path, postcode_data_path)
+
+
+```
+
+###Flipping hell: the absolute state of Ireland's property price index.
+
+The property price index is a truly valuable resource which lists the price of every gaff sold in (the twenty-six counties of) Ireland since 2010. That's `r nrow(property_raw)` house sales at the time of writing. Unfortunately, the database was designed by people who 'know the price of everything but the value of nothing'. Allegedly, the data has been uploaded one entry at a time, by solicitors' secretaries, many of whom express their humanity through misspelling and irregular punctuation, while several express their Irishness with the *cúpla focail*. Understanding the data is thus a bit like being given a big five-bed house for a holiday but having to wade through the previous tenants' filth.
+
+My role here is to take this unkempt raw data and flip it, scrubbing it goodo, and presenting it back to you, the reader, as an inhabitable space which, I hope, you can explore with some pleasure.
+
+###What is contained in the data?
+
+Let's have quick look at the first few rows.
+
+```{r}
+head(property_raw)
+```
+
+Each house sale has a date, a sale price, and an address, so that you can spy on your neighbours, or eye up the old price of a gaff you are interested in. If it has been sold since 2010. There is a useful column for the county so that we can divvy up the data into 26 important groups, and there is some secondary data, such as whether the property was sold at the market price or not, whether VAT was charged, whether the house was new or second-hand. Occasionally a size category is included,roughly equating to tiny (\<38sq. m), large (\> 125 sq.m) or anything in-between.
+
+We will look at each of these columns in turn and, in doing so, I will clean them up, before plotting the cleaner version of the data.
+
+###Column names
+
+The first thing to note is that the column names need cleaning as they were designed for humans to read rather than for people telling computers what to do.
+
+```{r}
+names(property_raw)
+
+```
+
+Spaces are anathemous to coders so they need to go and they can be replaced with underscore, where necessary. Lowercase letters are easier to code with, mostly, because you don't have to remember when you put capitals in. Ideally we'd just take the first word of the column, and we could rename the columns formulaically, e.g with a regex such as `.*?(?=\s|$)`, but the first word may not be the most important. 'Property Size Description' is better represented by 'size' than 'property' or 'description'. Thus we can rename the columns manually:
+
+```{r}
+property <- property_raw
+(names(property) <-  c('date', 
+                           'address', 
+                           'county',
+                           'eircode', 
+                           'price', 
+                           'market_price', 
+                           'vat', 
+                           'description', 
+                           'size'))
+
+
+```
+
+Recent years have contained eircode data which is a great addition, but unfortunately that column has been added at the expense of an postcode column which, while sparsely populated and confined solely to Dublin, will remain a useful bit of data when we are trying to find which towns and villages belong in which part of Dublin.
+
+Before we examine eircode data, we need to convert the 'date' column from a string to an actual date variable, and also extract the months, weeks, day and day of the week, as this may be valuable data for modelling later.
+
+```{r}
+
+# property <- property %>% mutate(date = dmy(date))
+#make date variables from sale_date
+property <-
+  property %>% 
+  #add new yeaar, month (jan - dec), weekday (mon - sun), quarter with year
+  mutate(date = dmy(date), 
+         year = year(date),
+         month = month(date, label = T),
+         day = wday(date, label = T),
+         quarter = quarter(date, with_year = T))
+# head(property, 500) %>% glimpse
+# # postcode_dfrm <- postcode_dfrm %>% mutate(date = dmy(SALE_DATE))
+# 
+# postcode_dfrm$SALE_DATE[[1]] %>% ymd
+# property_raw$date[1:10]
+```
+
+```{r}
+eircode_data <- property %>% 
+  mutate(eircode_given = !is.na(eircode)) %>% 
+  group_by(year) %>% 
+  count(eircode_given, name = "sales") 
+
+eircode_data %>% 
+  pivot_wider(names_from = eircode_given, 
+              values_from = sales) %>% 
+  arrange(year %>% desc)
+
+```
+
+```{r}
+#To build the back-to-back barplot, we need to centre the data around zero
+#This can be done by multiplying the False scores by -1. 
+#Below we need to change the values on the axis. 
+(eircode_data %>% 
+  mutate(sales = if_else(eircode_given == F, (sales * -1), sales), 
+        `Eircode?` = if_else(eircode_given == T, 'Yes', 'No'),
+        year = year %>% factor) %>% 
+  ggplot(aes(x = year,
+             y = sales, 
+             fill = `Eircode?`)) +
+  geom_bar(stat = 'identity') + 
+  #Much easier to read the effect we are looking at
+  coord_flip() +
+  #Viridis(2) is too yello and hard to read
+  scale_fill_manual(values = viridis(3)[1:2] ) +
+  #take the absolute value of the 'breaks' otherwise x-values would be negative
+  scale_y_continuous(labels = abs) +
+  labs(subtitle = "How many eircodes were included in each year's sales data?", 
+       title = "The rise of Eircodes",
+       y = 'Number of houses sold in Ireland', 
+       #my geography teacher would have docked me a mark for not labelling this axis, but the years are clearly years. 
+       x = '') +
+  my_theme ) %>% 
+  ggplotly
+  # theme(legend.position = 'none') #i debated removing this. 
+
+
+```
+
+It should be noted that there are a few houses with eircodes befored 2020
+
+```{r}
+ property %>% 
+  filter(year < 2021, !is.na(eircode)) %>% 
+  View
+
+# property_raw %>% 
+  # left_join(postcode_dfrm)
+```

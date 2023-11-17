@@ -4,59 +4,64 @@ library(purrr)
 library(magrittr)
 library(dplyr)
 
-#If you have run the script already, then this rds file will be used to
-property_rds_filepath <- './data/property_raw_all_years_except_this_one.rds'
-#Here's one I prepared earlier, containing postcode data for sales up to May 2021
-#it is actually available at Kaggle: 
-#https://www.kaggle.com/datasets/erinkhoo/property-price-register-ireland/data
-postcode_data_path <- "Property_Price_Register_Ireland-28-05-2021.csv"
 
-#create data folder for downloads
-data_folder = file.path('.', "data")
-if (!dir.exists(data_folder)){dir.create(data_folder)} else {print("Data directory already exists!")}
-
-
-# Extract years up to today
-current_year = as.numeric(format(Sys.Date(),"%Y"))
-relevant_years = 2010:current_year
-#templated version of the url containing CSVs for each year
-url_csv_addresses = paste0('https://www.propertypriceregister.ie/website/npsra/ppr/npsra-ppr.nsf/Downloads/PPR-',relevant_years, '.csv/$FILE/PPR-', relevant_years, '.csv')
-
-
-# -------------------------------------------------------------------------
-
-if (file.exists(property_rds_filepath)) {
-  property_raw_until_last_year <- readRDS(property_rds_filepath)
-  print(paste('Reading data from',  property_rds_filepath))
-} else {
-  addresses = url_csv_addresses[1:(length(url_csv_addresses)-1)]
-  print('Reading data from:')
-  print(addresses)
-  property_raw_until_last_year <- 
-    #take all years but this one
-    addresses %>% 
-    #and apply function to the url for each year. 
+read_property_prices <- 
+  function(property_data_url = "https://www.propertypriceregister.ie/website/npsra/ppr/npsra-ppr.nsf/Downloads", 
+           property_rds_filepath = './data/property_raw_all_years_except_this_one.rds'){
+    
+        data_folder = file.path('.', "data")
+        if (!dir.exists(data_folder)){dir.create(data_folder)} else {print("Data directory already exists!")}
+        
+        
+        # Extract years up to today
+        current_year = as.numeric(format(Sys.Date(),"%Y"))
+        relevant_years = 2010:current_year
+        #templated version of the url containing CSVs for each year
+        url_csv_addresses = file.path(property_data_url, 
+                                      paste0('PPR-',relevant_years, '.csv'), 
+                                      '$FILE', 
+                                      paste0('PPR-', relevant_years, '.csv')
+                                      )
+        
+        
+        # -------------------------------------------------------------------------
+        #Read in data until the end of last year, if we have it already
+        if (file.exists(property_rds_filepath)) {
+          property_raw_until_last_year <- readRDS(property_rds_filepath)
+          print(paste('Reading data from',  property_rds_filepath))
+        } else {
+          addresses = url_csv_addresses[1:(length(url_csv_addresses)-1)]
+          print('Reading data from:')
+          print(addresses)
+          property_raw_until_last_year <- 
+            #take all years but this one
+            addresses %>% 
+            #and apply function to the url for each year. 
+            purrr::map_dfr(  ~  read_csv(.x, 
+                                         col_types = "ccccccccc", 
+                                         locale=locale(encoding="latin1"),
+                                         progress = show_progress()
+            )
+            )
+          
+          saveRDS(property_raw_until_last_year, './data/property_raw_all_years_except_this_one.rds')
+  }
+  
+  #this should be reading the url
+        address <- url_csv_addresses[length(url_csv_addresses)]
+        print(paste('Reading data from ', address))
+  property_raw_this_year <- 
+     address %>% 
+    #apply function to the url for each year. 
     purrr::map_dfr(  ~  read_csv(.x, 
                                  col_types = "ccccccccc", 
                                  locale=locale(encoding="latin1"),
-                                 progress = show_progress()
-                                 )
-                     )
+                                 progress = show_progress()))
   
-  saveRDS(property_raw_until_last_year, './data/property_raw_all_years_except_this_one.rds')
+  
+  property_raw <- bind_rows(property_raw_until_last_year, property_raw_this_year)
+  return (property_raw)
 }
-
-#this should be reading the url
-property_raw_this_year <- 
-  url_csv_addresses[length(url_csv_addresses)] %>% 
-  #apply function to the url for each year. 
-  purrr::map_dfr(  ~  read_csv(.x, 
-                               col_types = "ccccccccc", 
-                               locale=locale(encoding="latin1"),
-                               progress = show_progress()))
-
-
-property_raw <- bind_rows(property_raw_until_last_year, property_raw_this_year)
 
 
 # names(property_raw)
@@ -67,16 +72,23 @@ property_raw <- bind_rows(property_raw_until_last_year, property_raw_this_year)
 
 # -------------------------------------------------------------------------
 
-
-if(file.exists(postcode_data_path)){
-  print('Reading in and saving data from 2010 - May 2021, containing')
-  read_csv(postcode_data_path, 
-           locale=locale(encoding="latin1")) %>% 
-    select('SALE_DATE', 'ADDRESS', 'POSTAL_CODE') %>% 
-    filter(!is.na(POSTAL_CODE)) %>% 
-    saveRDS( 'postcodes.rds')
+read_postcode_data <- function(postcodes_dfrm_path, postcode_data_path ){
+  if (file.exists(postcodes_dfrm_path)){
+    postcodes_dfrm <- readRDS(postcodes_dfrm_path)
+  } else if(file.exists(postcode_data_path)){
+    print('Reading in and saving data from 2010 - May 2021, containing')
+    postcodes_dfrm <- read_csv(postcode_data_path, 
+                               locale=locale(encoding="latin1")) %>% 
+      select('SALE_DATE', 'ADDRESS', 'POSTAL_CODE') %>% 
+      filter(!is.na(POSTAL_CODE)) 
+    saveRDS(postcodes_dfrm, 'postcodes.rds')
+  } else {
+    print('No postcode data found')
+    postcodes_dfrm <- NULL
+  }
+  
+  return(postcodes_dfrm)
 }
-
 
 
 # names(property_2010_2021_with_postcodes)

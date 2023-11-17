@@ -8,7 +8,7 @@ book:
   date: "10/29/2022"
   chapters:
     - index.qmd
-    - chapter_1.qmd
+    - 2_clean.qmd
 
 bibliography: references.bib
 

@@ -7,7 +7,7 @@ my_theme <- theme(
                             size=12, 
                             face="bold.italic"),
   plot.subtitle = element_text(color="black", 
-                            size=12, 
+                            size=10, 
                             face="italic"),
   axis.title.x = element_text(size = 10, face = 'bold'), 
   axis.title.y = element_text(size=10, face="bold"),
