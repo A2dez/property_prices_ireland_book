@@ -136,8 +136,7 @@ eircode_data %>%
        y = 'Number of houses sold in Ireland', 
        #my geography teacher would have docked me a mark for not labelling this axis, but the years are clearly years. 
        x = '') +
-  my_theme ) %>% 
-  ggplotly
+  my_theme ) #%>%  ggplotly
   # theme(legend.position = 'none') #i debated removing this. 
 
 
