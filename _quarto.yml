@@ -2,6 +2,9 @@ project:
   type: book
   always_allow_html: true
 
+execute:
+  freeze: auto
+
 book:
   title: "The cost of a gaff in Ireland"
   author: "Des"
