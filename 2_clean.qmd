@@ -1,18 +1,29 @@
 ---
-title: "Clean data"
+title: "Flipping hell: the absolute hack of Ireland's property price index."
 ---
 
 ```{r}
+#| echo: false
+#| message: false
+#| warning: false
 library(lubridate)
 library(viridis)
 library(tidyr)
 library(ggplot2)
 library(plotly)
+library(forcats)
+library(scico)
+library(stringr)
 source('./utils/plot_theme.R')
 source('1_read.R')
+source('./utils/plot_theme.R')
+source('./utils/vector_count_dfrm.R')
 ```
 
 ```{r}
+#| echo: false
+#| message: false
+#| warning: false
 #If you have run the script already, then this rds file will be used to
 property_rds_filepath <- './data/property_raw_all_years_except_this_one.rds'
 #Here's one I prepared earlier, containing postcode data for sales up to May 2021
@@ -26,43 +37,55 @@ property_data_url <- "https://www.propertypriceregister.ie/website/npsra/ppr/nps
 ```
 
 ```{r}
-
+#| echo: false
+#| message: false
+#| warning: false
 property_raw <- read_property_prices(property_data_url, property_rds_filepath) 
 postcode_dfrm <- read_postcode_data(postcodes_dfrm_path, postcode_data_path)
 
 
 ```
 
-###Flipping hell: the absolute state of Ireland's property price index.
-
 The property price index is a truly valuable resource which lists the price of every gaff sold in (the twenty-six counties of) Ireland since 2010. That's `r nrow(property_raw)` house sales at the time of writing. Unfortunately, the database was designed by people who 'know the price of everything but the value of nothing'. Allegedly, the data has been uploaded one entry at a time, by solicitors' secretaries, many of whom express their humanity through misspelling and irregular punctuation, while several express their Irishness with the *cúpla focail*. Understanding the data is thus a bit like being given a big five-bed house for a holiday but having to wade through the previous tenants' filth.
 
 My role here is to take this unkempt raw data and flip it, scrubbing it goodo, and presenting it back to you, the reader, as an inhabitable space which, I hope, you can explore with some pleasure.
 
-###What is contained in the data?
+### What is contained in the data?
 
-Let's have quick look at the first few rows.
+Let's have quick look at the last few rows.vect
 
 ```{r}
-head(property_raw)
+#| echo: false
+#| message: false
+#| warning: false
+# head(property_raw)
+tail(property_raw)
 ```
 
-Each house sale has a date, a sale price, and an address, so that you can spy on your neighbours, or eye up the old price of a gaff you are interested in. If it has been sold since 2010. There is a useful column for the county so that we can divvy up the data into 26 important groups, and there is some secondary data, such as whether the property was sold at the market price or not, whether VAT was charged, whether the house was new or second-hand. Occasionally a size category is included,roughly equating to tiny (\<38sq. m), large (\> 125 sq.m) or anything in-between.
+Each house sale has a date, a sale price, and an address, so that you can spy on your neighbours, or eye up the old price of a gaff you are interested in. If it has been sold since 2010. There is a useful column for the county so that we can divvy up the data into 26 important groups.
+
+There is also some secondary data, such as whether the property was sold at the market price or not, whether VAT was charged, whether the house was new or second-hand. Occasionally a size category is included,roughly equating to tiny (\<38sq. m), large (\> 125 sq.m) or anything in-between.
 
 We will look at each of these columns in turn and, in doing so, I will clean them up, before plotting the cleaner version of the data.
 
-###Column names
+### Column names
 
 The first thing to note is that the column names need cleaning as they were designed for humans to read rather than for people telling computers what to do.
 
 ```{r}
+#| echo: false
+#| message: false
+#| warning: false
 names(property_raw)
 
 ```
 
-Spaces are anathemous to coders so they need to go and they can be replaced with underscore, where necessary. Lowercase letters are easier to code with, mostly, because you don't have to remember when you put capitals in. Ideally we'd just take the first word of the column, and we could rename the columns formulaically, e.g with a regex such as `.*?(?=\s|$)`, but the first word may not be the most important. 'Property Size Description' is better represented by 'size' than 'property' or 'description'. Thus we can rename the columns manually:
+Spaces are an anathema to coders so they need to go and they can be replaced with underscore, where necessary. Lowercase letters are easier to code with, mostly, because you don't have to remember when you put capitals in. Ideally we'd just take the first word of the column, and we could rename the columns formulaically, e.g with a regex such as `.*?(?=\s|$)`, but the first word may not be the most important. 'Property Size Description' is better represented by 'size' than 'property' or 'description'. Thus we can rename the columns manually:
 
 ```{r}
+#| echo: false
+#| message: false
+#| warning: false
 property <- property_raw
 (names(property) <-  c('date', 
                            'address', 
@@ -71,49 +94,180 @@ property <- property_raw
                            'price', 
                            'market_price', 
                            'vat', 
-                           'description', 
+                           'new', 
                            'size'))
 
-
+property$province <- fct_collapse(property$county, 
+             "Leinster" = c('Dublin', 'Laois', 'Meath', "Kilkenny", "Carlow", "Kildare", "Wicklow", 
+                            'Wexford',  'Westmeath', 'Louth', 'Offaly'),
+             "Munster" = c("Cork", 'Clare', 'Limerick', 'Tipperary', 'Waterford', 'Kerry'), 
+             'Connacht-Ulster' = c('Galway', 'Longford','Sligo', 'Mayo', 'Leitrim', 'Roscommon', 'Donegal', 'Monaghan', 'Cavan') ,
+               )
 ```
 
-Recent years have contained eircode data which is a great addition, but unfortunately that column has been added at the expense of an postcode column which, while sparsely populated and confined solely to Dublin, will remain a useful bit of data when we are trying to find which towns and villages belong in which part of Dublin.
+```{r}
+# It should be noted that there are a few houses with eircodes befored 2020
+ # property %>%
+ #  filter(year < 2021, !is.na(eircode)) %>%
+ #  View
 
-Before we examine eircode data, we need to convert the 'date' column from a string to an actual date variable, and also extract the months, weeks, day and day of the week, as this may be valuable data for modelling later.
+# property_raw %>%
+  # left_join(postcode_dfrm)
+```
+
+### Dates and sales
 
 ```{r}
-
-# property <- property %>% mutate(date = dmy(date))
-#make date variables from sale_date
+#| echo: false
+#| message: false
+#| warning: false
 property <-
   property %>% 
-  #add new yeaar, month (jan - dec), weekday (mon - sun), quarter with year
+  #add new year, month (jan - dec), weekday (mon - sun), quarter with year
   mutate(date = dmy(date), 
          year = year(date),
          month = month(date, label = T),
          day = wday(date, label = T),
          quarter = quarter(date, with_year = T))
-# head(property, 500) %>% glimpse
+
+# property <- property %>% mutate(date = dmy(date))
+#make date variables from sale_date
+# property <-
+#   property %>% 
+#   #add new yeaar, month (jan - dec), weekday (mon - sun), quarter with year
+#   mutate(date = dmy(date), 
+#          year = year(date),
+#          month = month(date, label = T),
+#          day = wday(date, label = T),
+#          quarter = quarter(date, with_year = T))
+# # head(property, 500) %>% glimpse
 # # postcode_dfrm <- postcode_dfrm %>% mutate(date = dmy(SALE_DATE))
 # 
 # postcode_dfrm$SALE_DATE[[1]] %>% ymd
 # property_raw$date[1:10]
 ```
 
+So the simplest thing to look at is how many properties have been sold each year since they started collecting the data.
+
 ```{r}
+#| echo: false
+#| message: false
+#| warning: false
+annual_sales <- 
+  property %>% 
+  group_by(year) %>% 
+  summarise(sales = n())
+  # mutate(year = year %>% as.factor) %>% 
+(annual_sales %>% 
+  ggplot(aes(x = year  , 
+             y = sales)) +
+  geom_line(size = 2) +
+  geom_point(size = 4, color = 'orange') +
+
+    # scale_x_discrete() 
+  scale_x_continuous(breaks = annual_sales$year) + #, position = "top" doeesn't work automatically in ggplotly
+    #round max sales up to nearest 10k then add 5k for spacing
+  scale_y_continuous(expand = c(0, 0), limits = c(0, max(annual_sales$sales) %>% round(digits = -4) + 5000)) +
+  labs(title = 'Number of properties sold in Ireland each year, 2010-present', 
+       y = '', x = '') +
+  my_theme) %>% 
+  ggplotly 
+
+
+
+  
+```
+
+It's pretty clear that there's a massive difference between the recession of 2010-13 and the sudden return to form in 2014, followed by five more years of increased sales before Covid. Unsurprisingly, sales dropped in 2020, but they didn't nosedive like, say, the airline industry, and 2021 shows a return to 2019 levels.
+
+At the time of writing (November 2022), it is not immediately obvious if sales will increase from 2021, but, if we break down sales by month, as in the plot below, then that seems likely, as each month has been consistently a wee bit ahead thus far. This resolution makes it possible to see inside the grim years of the Covid pandemic. Understandably there were reduced sales in April 2020 (2647 sales vs 4562 in 2019), May (2592 v 4940), June (3083 v 4356), but things re-normalized by October (5576 v 5579) and November (5379 v 5264), while the end-of-year rush in the 'meaningful' month of December 2020 (7474 sales) was a good deal larger than December 2019 (6798).
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+#| fig-cap: "Properties sold by year"
+first_year_of_plot <- 2018 
+
+(property_sales_by_year <- 
+  property %>% 
+   filter(year >= first_year_of_plot) %>% 
+    mutate(year = factor(year), 
+           month = fct_rev(month)) %>% 
+  ggplot(aes (x = year , fill = month )) + #factor(year) %>% fct_rev
+  geom_bar(position="stack") +
+  # geom_text(stat='count', aes(label=(..count../1000) %>% round(0) %>% paste0(., 'k'))) +
+  # coord_flip() +
+  # scale_x_date(breaks = year)+ #year is not a date so this throws an error
+  # scale_fill_scico(palette = 'bamako') +
+  scale_fill_viridis(discrete = T, direction = -1, option = 'B') +
+  labs(title = paste0("Number of properties sold each month and year in Ireland:\n", first_year_of_plot, "–present"), 
+       subtitle = 'Grouped by month',
+       y = '', 
+       x = '') +
+  my_theme 
+  +
+   theme(legend.position = 'none')
+  ) %>% 
+  ggplotly
+# https://stackoverflow.com/questions/26553526/how-to-add-frequency-count-labels-to-the-bars-in-a-bar-graph-using-ggplot2
+
+
+```
+
+One last thing to note, before I get too far into the weeds, is that there hasn't been a bounceback from the "missing" 10,000 sales in 2020. Instead, the 2021 and 2022 sales totals look like a natural progression from the years leading up to 2020.
+
+```{r}
+
+#| echo: false
+#| message: false
+#| warning: false
+(property_sales_by_quarter <-
+  property %>%
+    filter(year > 2018, year <= 2022) %>%
+  ggplot(aes (x = factor(quarter))) + #factor(year) %>% fct_rev
+  geom_bar(aes(fill = ..count..)) +
+  geom_text(stat='count', aes(label=(..count../1000) %>% round(0) %>% paste0(., 'k')), vjust=1) +
+  #coord_flip() +
+  #scale_x_date(breaks = year)+
+  scale_fill_scico(palette = 'bamako') +
+    facet_wrap(~year, scales = 'free_x') +
+  labs(title = paste0("Number of properties sold in Ireland: 2019–2022"),
+       y = '',
+       x = '') +
+  my_theme +
+   theme(legend.position = 'none'))
+
+
+```
+
+### Eircodes
+
+Recent years have contained eircode data which is a great addition, but unfortunately that column has been added at the expense of an postcode column which, while sparsely populated and confined solely to Dublin, will remain a useful bit of data when we are trying to find which towns and villages belong in which part of Dublin.
+
+Before we examine eircode data, we need to convert the 'date' column from a string to an actual date variable, and also extract the months, weeks, day and day of the week, as this may be valuable data for modelling later.
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
 eircode_data <- property %>% 
   mutate(eircode_given = !is.na(eircode)) %>% 
   group_by(year) %>% 
   count(eircode_given, name = "sales") 
 
-eircode_data %>% 
-  pivot_wider(names_from = eircode_given, 
-              values_from = sales) %>% 
-  arrange(year %>% desc)
+# eircode_data %>% 
+#   pivot_wider(names_from = eircode_given, 
+#               values_from = sales) %>% 
+#   arrange(year %>% desc)
 
 ```
 
 ```{r}
+#| echo: false
+#| message: false
+#| warning: false
 #To build the back-to-back barplot, we need to centre the data around zero
 #This can be done by multiplying the False scores by -1. 
 #Below we need to change the values on the axis. 
@@ -142,13 +296,167 @@ eircode_data %>%
 
 ```
 
-It should be noted that there are a few houses with eircodes befored 2020
+### New homes versus old
+
+Before we look at the frightening cost of a gaff in this country, I'm going to clean up the "Property Description" column, which is the one that tells you if the gaff is new or old. This will give us an introduction to the absolute state of this dataset:
 
 ```{r}
- # property %>% 
- #  filter(year < 2021, !is.na(eircode)) %>% 
- #  View
+#| echo: false
+#| message: false
+#| warning: false
 
-# property_raw %>% 
-  # left_join(postcode_dfrm)
+# table(property$new,  useNA = 'ifany')
+(new_or_old <- vector_count_dfrm(property$new))
+
+```
+
+The label 'New Dwelling house /Apartment' is not computer-friendly and I have changed it to 'nww. Similarly, 'Second-Hand Dwelling house /Apartment' will become 'Old' an underdescriptive label that at least contrasts nicely against 'New'. *Mar sin féin*, `new_or_old$count[3:nrow(new_or_old)] %>% sum` properties have had their description listed in Irish, so we need to clean those up, and basically translate them back into English. There have been some issues importing the fadas (accents) but we can still group them using ad-hoc regexes.
+
+It is not yet the time to concern ourselves with the fact that only `new_or_old_cleaned$count[2]` new properties (`(100*new_or_old_cleaned$count[2]/nrow(property)) %>% round(1) %>% paste0(.,'%')` of them) have been sold in a country which has grown by just over half a million people since 2010.
+
+```{r}
+
+#| echo: false
+#| message: false
+#| warning: false
+
+# (with a cheeky capital because it'll save me manually relabelling axes later at little cos).
+
+#relabel the Irish & make logical
+property$new <- 
+  ifelse(str_detect(property$new, 'Nua$'), 
+         'New Dwelling house /Apartment', 
+         ifelse(str_detect(property$new , 'imhe$'), 
+                'Second-Hand Dwelling house /Apartment', 
+                property$new))  %>% 
+  factor  %>% 
+  fct_drop() %>% #removes empty levels e.g. ones in Irish 
+  fct_recode('New' = 'New Dwelling house /Apartment',
+             'Old' = 'Second-Hand Dwelling house /Apartment')
+
+(new_or_old_cleaned <- 
+    vector_count_dfrm(property$new) %>%
+    mutate(percentage = ((100*count)/sum(count)) %>% round(2)
+           )
+)
+property$new %>% fct_drop -> property$new
+```
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+# #rotate x-axis labels 45' cos they the plot is too small to read them.
+# property %>% 
+#   ggplot(aes (x = factor(year))) + #factor(year) %>% fct_rev
+#   geom_bar(aes(fill = ..count..)) 
+#   # geom_text(stat='count', aes(label=(..count../1000) %>% round(0) %>% paste0(., 'k')), vjust=1) +
+#   #coord_flip() +
+#   #scale_x_date(breaks = year)+
+#   scale_fill_scico(palette = 'bamako') +
+#       labs(title = "Number of properties sold each year, old & new", 
+#        y = '', 
+#        x = '') +
+#   facet_wrap(~new %>% fct_rev) +
+#   my_theme +
+#    theme(legend.position = 'none') 
+# )   
+#   ggplotly()
+
+
+```
+
+### Price by year
+
+Before analysing prices, we need to clean up the price column which includes unwanted commas, badly imported euro symbols, and some unexpected spare change after the decimal point.
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+# The first thing to check is what kind of non-digits are in there, and then we can remove them. It turns out that there is nothing except the three categories above, all of which saw in the in the first few rows.
+
+property$price %>% str_extract_all('\\D') %>% unlist %>% table() 
+
+# Each price has a euro-symbol, read in here as a unicode character '\u0080', and a decimal point
+property$price <- property$price %>% str_replace_all('\\u0080|,', '') %>% as.numeric
+```
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+# filter(property, str_detect(price, '^\u0080') == T) %>% View
+# str_extract(property$price, 1) %>% table
+```
+
+### Spare Change
+
+It is curious to note that house prices are not always sold to the nearest euro and an enormous number of properties have a few cents tacked on at the end. I thought that this information might be interesting as part of a modelling task, looking for clues into who is buying the houses (e.g, if a price ends in 50c, then there might well have been two bought together). Either way, it ended up being an excuse to create a polar bar chart.
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+str_extract(property$price, '\\d{2}$') %>%
+  as.numeric %>%
+  table %>%
+  as.data.frame() %>%
+  select(cent = '.',
+         count = Freq) %>%
+  mutate(group = as.numeric(cent) %% 10) %>%
+  ggplot(aes(x = as.factor(cent),
+             y = count,
+             fill = as.factor(group))) +
+     geom_bar(stat="identity") +
+  scale_y_continuous(trans = 'log2') +
+  labs(title = "Howevermany thousand euro and how many cents?") +
+  coord_polar(start = 0) +
+  facet_wrap(~group, ncol = 5) +
+  theme_void()
+  # my_theme
+
+
+
+
+```
+
+### House prices by county
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+property_22 <- property %>% filter(year > 2021, 
+                                   price > 8e4 , 
+                                   price < 1e6)
+
+property_22 <-
+property_22 %>% 
+  group_by(county) %>% 
+  mutate(median_price = median(price)) %>% 
+  ungroup %>% 
+  mutate( county = county %>% factor %>% fct_reorder(median_price) )
+
+
+
+
+```
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+         
+  property_22 %>% 
+  ggplot(aes(x = price, 
+             y = county, 
+             fill = median_price)) +
+  geom_boxplot(outlier.size = 0.1) +
+  scale_x_continuous(trans = 'log2') +
+    scale_fill_viridis() +
+    labs(title = 'Price of houses by county (since 2022)') +
+    my_theme
+  
+
 ```
