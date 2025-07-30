@@ -11,7 +11,8 @@ book:
   date: "10/29/2022"
   chapters:
     - index.qmd
-    - 2_clean.qmd
+    #- 2_clean.qmd
+    - testing.qmd
 
 bibliography: references.bib
 
